@@ -6,11 +6,107 @@
 
 #include "cpptoml.h"
 
+#include "meta/analyzers/analyzer.h"
+#include "meta/analyzers/tokenizers/icu_tokenizer.h"
+#include "meta/analyzers/filters/all.h"
 #include "meta/caching/no_evict_cache.h"
 #include "meta/index/forward_index.h"
+#include "meta/io/filesystem.h"
 #include "meta/logging/logger.h"
 
 using namespace meta;
+
+/**
+ * TODO add documentation.
+ */
+std::unique_ptr<meta::analyzers::token_stream> create_preprocess_stream(
+    const cpptoml::table& config)
+{
+    using namespace meta::analyzers;
+    auto stopwords = config.get_as<std::string>("stop-words");
+
+    std::unique_ptr<token_stream> stream
+        = make_unique<tokenizers::icu_tokenizer>();
+    stream = make_unique<filters::lowercase_filter>(std::move(stream));
+    stream = make_unique<filters::list_filter>(std::move(stream), *stopwords);
+    stream = make_unique<filters::porter2_filter>(std::move(stream));
+    stream = make_unique<filters::empty_sentence_filter>(std::move(stream));
+
+    return stream;
+}
+
+// Read file content.
+std::string get_content(const std::string& content_path)
+{
+    std::ifstream input{content_path};
+    std::ostringstream oss;
+    oss << input.rdbuf();
+    std::string content{oss.str()};
+    std::replace_if(content.begin(), content.end(), [](char ch) {
+        return ch == '\n' || ch == '\t'; }, ' ');
+    return content;
+}
+
+template <class Stream>
+void preprocess_content(std::string& content, Stream& stream,
+                        std::ofstream& outfile)
+{
+    stream->set_content(std::move(content));
+    while (*stream)
+    {
+        auto next = stream->next();
+        if (next == "<s>" || next == "</s>" || next == " ")
+            continue;
+        else
+            outfile << next << " ";
+    }
+}
+
+// Create line corpus, labels, and names.
+void create_line_corpus(const std::string& filename,
+                        const std::string& new_filename,
+                        const std::string& prefix,
+                        const std::string& dataset,
+                        std::unique_ptr<meta::analyzers::token_stream> stream)
+{
+    std::ifstream input_paths{filename};
+    if (!input_paths.good())
+        std::cerr << "Failed to open " << filename << std::endl;
+    std::ofstream content{new_filename};
+    std::ofstream labels{new_filename + ".labels"};
+    std::ofstream names{new_filename + ".names"};
+
+    uint64_t num_lines = filesystem::num_lines(filename);
+    uint64_t cur_line = 0;
+    std::cout << "Found " << num_lines << " files" << std::endl;
+
+    std::string path;
+    std::string label;
+    while (input_paths >> label >> path)
+    {
+        std::string text = get_content(prefix + "/" + dataset + "/" + path);
+        preprocess_content(text, stream, content);
+        content << "\n";
+        labels << label << "\n";
+        names << path << "\n";
+        std::cout << ++cur_line << "/" << num_lines << " " << path
+                  << "\t\t\t\t\r";
+    }
+    std::cout << std::endl;
+}
+
+// Generate stemmed/stopword-removed line corpus.
+void generate_corpus(const std::string& prefix, const std::string& dataset,
+                     const cpptoml::table& config)
+{
+    auto stream = create_preprocess_stream(config);
+    std::string file =
+        prefix + "/" + dataset + "/" + dataset + "-full-corpus.txt";
+    // Line corpus.
+    std::string new_file = prefix + "/" + dataset + "/" + dataset + ".dat";
+
+    create_line_corpus(file, new_file, prefix, dataset, std::move(stream));
+}
 
 bool check_parameter(const std::string& file, const cpptoml::table& group,
                      const std::string& param)
@@ -62,10 +158,21 @@ int main(int argc, char** argv)
 {
     if (argc != 2)
     {
-        std::cerr << "Usage:\t" << argv[0] << " configFile" << std::endl;
+        std::cerr << "Usage:\t" << argv[0] << " configFile"
+                  << std::endl;
         return 1;
     }
 
+    auto config = cpptoml::parse_file(argv[1]);
+    auto prefix = config->get_as<std::string>("prefix");
+    if (!prefix)
+        throw std::runtime_error{"prefix missing from configuration file"};
+    auto dataset = config->get_as<std::string>("dataset");
+    if (!dataset)
+        throw std::runtime_error{"dataset missing from configuration file"};
+
     logging::set_cerr_logging();
-    return run_kmeans(argv[1]);
+    generate_corpus("./data-copy", dataset, *config);
+    // return run_kmeans(argv[1]);
+    return 0;
 }

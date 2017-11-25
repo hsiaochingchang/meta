@@ -1,0 +1,9 @@
+stop-words = "../data/lemur-stopwords.txt"
+prefix = "./data-copy"
+dataset = "ceeaus"
+
+[kmeans]
+max-iters = 300
+topics = 8
+
+

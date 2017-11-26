@@ -10,6 +10,7 @@
 #include "meta/analyzers/tokenizers/icu_tokenizer.h"
 #include "meta/analyzers/filters/all.h"
 #include "meta/caching/no_evict_cache.h"
+#include "meta/corpus/corpus_factory.h"
 #include "meta/index/forward_index.h"
 #include "meta/io/filesystem.h"
 #include "meta/logging/logger.h"
@@ -96,8 +97,9 @@ void create_line_corpus(const std::string& filename,
 }
 
 // Generate stemmed/stopword-removed line corpus.
-void generate_corpus(const std::string& prefix, const std::string& dataset,
-                     const cpptoml::table& config)
+std::unique_ptr<meta::corpus::corpus> generate_corpus(
+    const std::string& prefix, const std::string& dataset,
+    const cpptoml::table& config)
 {
     auto stream = create_preprocess_stream(config);
     std::string file =
@@ -106,6 +108,13 @@ void generate_corpus(const std::string& prefix, const std::string& dataset,
     std::string new_file = prefix + "/" + dataset + "/" + dataset + ".dat";
 
     create_line_corpus(file, new_file, prefix, dataset, std::move(stream));
+
+    // Create line_corpus object.
+    using namespace meta::corpus;
+    auto corp = make_corpus(config);
+    std::cout << "Created line corpus with " << corp->size() << " files"
+              << std::endl;
+    return corp;
 }
 
 bool check_parameter(const std::string& file, const cpptoml::table& group,
@@ -120,14 +129,14 @@ bool check_parameter(const std::string& file, const cpptoml::table& group,
     return true;
 }
 
-int run_kmeans(const std::string& config_file)
+int run_kmeans(std::shared_ptr<cpptoml::table> config,
+               std::unique_ptr<meta::corpus::corpus> corp)
 {
     using namespace meta::topics;
-    auto config = cpptoml::parse_file(config_file);
 
     if (!config->contains("kmeans"))
     {
-        std::cerr << "Missing kmeans configuration group in " << config_file
+        std::cerr << "Missing kmeans configuration group in config"
                   << std::endl;
         return 1;
     }
@@ -135,16 +144,23 @@ int run_kmeans(const std::string& config_file)
     auto kmeans_group = config->get_table("kmeans");
 
     // TODO add parameters and sort in alphabetical order.
-    if (!check_parameter(config_file, *kmeans_group, "max-iters")
-        || !check_parameter(config_file, *kmeans_group, "topics"))
-        return 1;
+    // if (!check_parameter(config_file, *kmeans_group, "max-iters")
+    //     || !check_parameter(config_file, *kmeans_group, "topics"))
+    //     return 1;
 
     auto iters = *kmeans_group->get_as<uint64_t>("max-iters");
     auto topics = *kmeans_group->get_as<std::size_t>("topics");
+    auto index = *config->get_as<std::string>("index");
 
     auto f_idx
         = index::make_index<index::forward_index, caching::no_evict_cache>(
-            *config);
+            *config, *corp);
+    std::cout << "Created forward index for " << corp->size() << " docs"
+              << std::endl;
+    std::cout << "Index name: " << f_idx->index_name() << std::endl
+              << "Unique terms: " << f_idx->unique_terms() << std::endl
+              << "Num of docs: " << f_idx->num_docs() << std::endl;
+ 
     std::cout << "Beginning K-means clustering..."
               << std::endl;
 
@@ -164,15 +180,13 @@ int main(int argc, char** argv)
     }
 
     auto config = cpptoml::parse_file(argv[1]);
-    auto prefix = config->get_as<std::string>("prefix");
-    if (!prefix)
-        throw std::runtime_error{"prefix missing from configuration file"};
-    auto dataset = config->get_as<std::string>("dataset");
-    if (!dataset)
-        throw std::runtime_error{"dataset missing from configuration file"};
+    auto prefix = *config->get_as<std::string>("prefix");
+    auto dataset = *config->get_as<std::string>("dataset");
 
     logging::set_cerr_logging();
-    generate_corpus("./data-copy", dataset, *config);
-    // return run_kmeans(argv[1]);
+    // Generate line corpus.
+    auto corp = generate_corpus(prefix, dataset, *config);
+    return run_kmeans(config, std::move(corp));
+
     return 0;
 }

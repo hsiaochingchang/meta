@@ -12,9 +12,11 @@
 
 // TODO: remove this.
 #include <iostream>
+#include <vector>
 
 #include "meta/config.h"
 #include "meta/index/forward_index.h"
+#include "meta/index/inverted_index.h"
 
 MAKE_NUMERIC_IDENTIFIER(topic_id, uint64_t)
 
@@ -22,6 +24,8 @@ namespace meta
 {
 namespace topics
 {
+
+typedef std::vector<double> Feature;
 
 /**
  * TODO: Fix documentation.
@@ -49,7 +53,8 @@ class kmeans_model
      * @param idx The index containing the documents to use for the model
      * @param num_topics The number of topics to find
      */
-    kmeans_model(std::shared_ptr<index::forward_index> idx,
+    kmeans_model(std::shared_ptr<index::forward_index> fwd_idx,
+                 std::shared_ptr<index::inverted_index> inv_idx,
                  std::size_t num_topics);
 
     /**
@@ -66,25 +71,8 @@ class kmeans_model
      * @param convergence The convergence criteria (this has different
      * meanings for different subclass models)
      */
-    void run(uint64_t num_iters);
-
-    /**
-     * Saves the topic proportions \f$\theta_d\f$ for each document to
-     * the given file. Saves the distributions in a simple "human
-     * readable" plain-text format.
-     *
-     * @param filename The file to save \f$\theta\f$ to
-     */
-    // void save_doc_topic_distributions(const std::string& filename) const;
-
-    /**
-     * Saves the term distributions \f$\phi_j\f$ for each topic to the
-     * given file. Saves the distributions in a simple "human readable"
-     * plain-text format.
-     *
-     * @param filename The file to save \f$\phi\f$ to
-     */
-    // void save_topic_term_distributions(const std::string& filename) const;
+    void run(uint64_t num_iters, std::string init_method,
+             uint64_t num_output_terms);
 
     /**
      * Saves the current model to a set of files beginning with prefix:
@@ -92,27 +80,12 @@ class kmeans_model
      *
      * @param prefix The prefix for all generated files over this model
      */
-    void save(const std::string& prefix) const;
+    void save(const std::string& filename) const;
 
     /**
-     * @return the probability that the given term appears in the given
-     * topic
      *
-     * @param term The term we are concerned with
-     * @param topic The topic we are concerned with
      */
-    // virtual double compute_term_topic_probability(term_id term,
-    //                                               topic_id topic) const = 0;
-
-    /**
-     * @return the probability that the given topic is picked for the given
-     * document
-     *
-     * @param doc The document we are concerned with
-     * @param topic The topic we are concerned with
-     */
-    // virtual double compute_doc_topic_probability(doc_id doc,
-    //                                              topic_id topic) const = 0;
+    void print_topics(uint64_t num_terms);
 
     /**
      * @return the number of topics in this model
@@ -121,19 +94,98 @@ class kmeans_model
 
   protected:
     /**
-     * lda_models cannot be copy assigned.
+     * kmeans_models cannot be copy assigned.
      */
     kmeans_model& operator=(const kmeans_model&) = delete;
 
     /**
-     * lda_models cannot be copy constructed.
+     * kmeans_models cannot be copy constructed.
      */
     kmeans_model(const kmeans_model&) = delete;
 
     /**
+     * Extract the document vectors.
+     */
+    void init_documents();
+
+    /**
+     * Randomly generate the centroid of each cluster.
+     */
+    void init_centroids(const std::string& init_method);
+
+    /**
+     * Assign the document to its nearest cluster.
+     *
+     * @param d_id The document to assign.
+     * @return true if the cluster of the document has been changed.
+     */
+    bool assign_document(uint64_t d_id);
+
+    /**
+     * Compute the new centroids.
+     */
+    void update_centroids();
+
+    /**
+     * Find the nearest cluster for a given feature vector.
+     */
+    std::pair<uint64_t, double> find_nearest_cluster(
+        const Feature& feature);
+
+    /**
+     * Find the nearest cluster for a given feature vector.
+     */
+    std::pair<uint64_t, double> find_nearest_cluster(
+        const Feature& feature, uint64_t centroid_count);
+    /**
+     *
+     */
+    Feature compute_mean(const std::vector<uint64_t>& doc_ids);
+
+    /**
+     * The distance function between feature vectors.
+     */
+    double compute_distance(const std::pair<Feature, Feature>& features);
+
+    /**
+     *
+     */
+    void save_documents(const std::string& filename) const;
+
+    /**
+     *
+     */
+    void save_centroids(const std::string& filename) const;
+
+    /**
+     *
+     */
+    void save_clusters(const std::string& filename) const;
+
+    /**
      * The index containing the documents for the model.
      */
-    std::shared_ptr<index::forward_index> idx_;
+    std::shared_ptr<index::inverted_index> inv_idx_;
+
+    /**
+     * The index containing the documents for the model.
+     */
+    std::shared_ptr<index::forward_index> fwd_idx_;
+
+    /**
+     *
+     */
+    std::vector<Feature> documents_;
+
+    /**
+     * The centroids of each cluster.
+     */
+    std::vector<Feature> centroids_;
+
+    /**
+     * The assigned topic ids for each document.
+     */
+    std::vector<uint64_t> topics_;
 
     /**
      * The number of topics.
@@ -144,6 +196,11 @@ class kmeans_model
      * The number of total unique words.
      */
     std::size_t num_words_;
+
+    /**
+     * The number of documents.
+     */
+    std::size_t num_docs_;
 };
 }
 }

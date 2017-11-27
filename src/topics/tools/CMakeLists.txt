@@ -8,4 +8,4 @@ add_executable(topic-corpus topic_corpus.cpp)
 target_link_libraries(topic-corpus meta-topics)
 
 add_executable(kmeans kmeans.cpp)
-target_link_libraries(kmeans meta-topics)
+target_link_libraries(kmeans meta-topics meta-analyzers meta-index)

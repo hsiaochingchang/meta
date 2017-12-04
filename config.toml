@@ -42,8 +42,11 @@ method = "sgd"
 loss = "least-squares"
 
 [kmeans]
-max-iters = 300
-topics = 8
+max-iters = 50
+topics = 2
+init-method = "randk"
+output-terms = 8
+model-prefix = "kmeans-model"
 
 [lda]
 inference = "gibbs"

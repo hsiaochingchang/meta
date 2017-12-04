@@ -100,7 +100,7 @@ void kmeans_model::init_centroids(const std::string& init_method)
     }
 }
 
-bool kmeans_model::assign_document(uint64_t d_id)
+bool kmeans_model::assign_document(doc_id d_id)
 {
     const auto& pair = find_nearest_cluster(documents_[d_id]);
     if (pair.first == topics_[d_id])
@@ -116,8 +116,8 @@ bool kmeans_model::assign_document(uint64_t d_id)
 
 void kmeans_model::update_centroids()
 {
-    std::multimap<uint64_t, uint64_t> clusters;
-    for (uint64_t d_id = 0; d_id < num_docs_; ++d_id)
+    std::multimap<uint64_t, doc_id> clusters;
+    for (doc_id d_id{0}; d_id < num_docs_; ++d_id)
         clusters.insert(std::make_pair(topics_[d_id], d_id));
 
     // Compute mean for each cluster
@@ -159,6 +159,7 @@ Feature kmeans_model::compute_mean(const std::vector<uint64_t>& doc_ids)
     // TODO sanity check doc_ids non-empty
 
     Feature mean(num_words_, 0);
+
     for (const auto& doc_id : doc_ids)
         for (uint64_t idx = 0; idx < num_words_; ++idx)
             mean[idx] += documents_[doc_id][idx];
@@ -173,12 +174,12 @@ double kmeans_model::compute_distance(const std::pair<Feature, Feature>& feature
 {
     double distance = 0.0;
     // Euclidean distance
-    for (uint64_t idx = 0; idx < features.first.size(); ++idx)
+    for (uint64_t idx = 0; idx < num_words_; ++idx)
     {
         const double diff = features.first[idx] - features.second[idx];
         distance += diff * diff;
     }
-    return sqrt(distance);
+    return distance;
 }
 
 void kmeans_model::run(uint64_t num_iters, std::string init_method,
@@ -190,7 +191,7 @@ void kmeans_model::run(uint64_t num_iters, std::string init_method,
     for (uint64_t i = 0; i < num_iters; ++i)
     {
         uint64_t update_count = 0;
-        for (uint64_t d_id = 0; d_id < num_docs_; ++d_id)
+        for (doc_id d_id{0}; d_id < num_docs_; ++d_id)
         {
             if (assign_document(d_id))
                 ++update_count;

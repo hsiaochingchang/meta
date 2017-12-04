@@ -119,7 +119,7 @@ class kmeans_model
      * @param d_id The document to assign.
      * @return true if the cluster of the document has been changed.
      */
-    bool assign_document(uint64_t d_id);
+    bool assign_document(doc_id d_id);
 
     /**
      * Compute the new centroids.
